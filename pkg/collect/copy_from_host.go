@@ -31,12 +31,13 @@ import (
 )
 
 type CollectCopyFromHost struct {
-	Collector    *troubleshootv1beta2.CopyFromHost
-	BundlePath   string
-	Namespace    string
-	ClientConfig *rest.Config
-	Client       kubernetes.Interface
-	Context      context.Context
+	Collector        *troubleshootv1beta2.CopyFromHost
+	BundlePath       string
+	Namespace        string
+	ClientConfig     *rest.Config
+	Client           kubernetes.Interface
+	Context          context.Context
+	RetryFailedMount bool
 	RBACErrors
 }
 
