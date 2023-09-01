@@ -277,7 +277,7 @@ func TestCollectHTTP_Collect(t *testing.T) {
 			assert.Equal(t, tt.want, res)
 
 			switch {
-			case c.Collector.Delete != nil:
+			case c.Collector.Put != nil:
 				if tt.checkTimeout && tt.wantErr {
 					c.Collector.Get.URL = fmt.Sprintf("%s%s", url, "/post")
 					response_data = sample_error_response
