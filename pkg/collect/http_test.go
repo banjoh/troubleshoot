@@ -261,29 +261,42 @@ func TestCollectHTTP_Collect(t *testing.T) {
 		defer ts.Close()
 
 		t.Run(tt.name, func(t *testing.T) {
+			// Create mux here
+
+			var response_data interface{}
+			// var response_data ResponseData
+			// var response_data ErrorResponse
+
+
 			c := &CollectHTTP{
 				Collector: tt.Collector,
 			}
 
+			res, err := c.Collect(nil)
+			assert.Equal(t, tt.wantErr, (err != nil))
+			assert.Equal(t, tt.want, res)
+
 			switch {
-			case c.Collector.Get != nil:
+			case c.Collector.Delete != nil:
 				if tt.checkTimeout && tt.wantErr {
-					c.Collector.Get.URL = fmt.Sprintf("%s%s", url, "/error")
-					response_data := sample_error_response
+					c.Collector.Get.URL = fmt.Sprintf("%s%s", url, "/post")
+					response_data = sample_error_response
 					response_data.testCollectHTTP(t, &tt, c)
 				} else {
 					c.Collector.Get.URL = fmt.Sprintf("%s%s", url, "/get")
-					response_data := sample_get_response
+					response_data = sample_get_response
 					response_data.testCollectHTTP(t, &tt, c)
 				}
 			case c.Collector.Post != nil:
 				c.Collector.Post.URL = fmt.Sprintf("%s%s", url, "/post")
-				response_data := sample_post_response
+				response_data = sample_post_response
 				response_data.testCollectHTTP(t, &tt, c)
 			case c.Collector.Put != nil:
 				c.Collector.Put.URL = fmt.Sprintf("%s%s", url, "/put")
-				response_data := sample_put_response
+				response_data = sample_put_response
 				response_data.testCollectHTTP(t, &tt, c)
+			default:
+				assert.Failf(t, "method not suppoted")
 			}
 		})
 	}
