@@ -244,8 +244,9 @@ the %s Admin Console to begin analysis.`
 }
 
 // loadSupportBundleSpecsFromURIs loads support bundle specs from URIs
-func loadSupportBundleSpecsFromURIs(ctx context.Context, kinds *loader.TroubleshootKinds) error {
-	remoteRawSpecs := []string{}
+func loadSupportBundleSpecsFromURIs(ctx context.Context, kinds *loader.TroubleshootKinds) (*loader.TroubleshootKinds, error) {
+	resultingKind := loader.NewTroubleshootKinds()
+
 	for _, s := range kinds.SupportBundlesV1Beta2 {
 		if s.Spec.Uri != "" && util.IsURL(s.Spec.Uri) {
 			// We are using LoadSupportBundleSpec function here since it handles prompting
@@ -256,26 +257,31 @@ func loadSupportBundleSpecsFromURIs(ctx context.Context, kinds *loader.Troublesh
 			if err != nil {
 				// In the event a spec can't be loaded, we'll just skip it and print a warning
 				klog.Warningf("unable to load support bundle from URI: %q: %v", s.Spec.Uri, err)
+				// Add back the original spec
+				resultingKind.SupportBundlesV1Beta2 = append(resultingKind.SupportBundlesV1Beta2, s)
 				continue
 			}
-			remoteRawSpecs = append(remoteRawSpecs, string(rawSpec))
+			k, err := loader.LoadSpecs(ctx, loader.LoadOptions{
+				RawSpec: string(rawSpec),
+			})
+			if err != nil {
+				klog.Warningf("unable to load spec: %v", err)
+				// Add back the original spec
+				resultingKind.SupportBundlesV1Beta2 = append(resultingKind.SupportBundlesV1Beta2, s)
+				continue
+			}
+
+			// Append the loaded support bundle specs to the resulting kinds
+			// This replaces the original spec
+			resultingKind.SupportBundlesV1Beta2 = append(resultingKind.SupportBundlesV1Beta2, k.SupportBundlesV1Beta2...)
+		} else {
+			// Add back the original spec
+			resultingKind.SupportBundlesV1Beta2 = append(resultingKind.SupportBundlesV1Beta2, s)
 		}
 	}
 
-	if len(remoteRawSpecs) == 0 {
-		return nil
-	}
-
-	moreKinds, err := loader.LoadSpecs(ctx, loader.LoadOptions{
-		RawSpecs: remoteRawSpecs,
-	})
-	if err != nil {
-		return err
-	}
-
-	// uri spec replaces the original spec
-	*kinds = *moreKinds
-	return nil
+	// Replace the original kinds with the resulting kinds
+	return resultingKind, nil
 }
 
 func loadSpecs(ctx context.Context, args []string, client kubernetes.Interface) (*troubleshootv1beta2.SupportBundle, *troubleshootv1beta2.Redactor, error) {
@@ -288,7 +294,7 @@ func loadSpecs(ctx context.Context, args []string, client kubernetes.Interface) 
 
 	// Load additional specs from support bundle URIs
 	if !viper.GetBool("no-uri") {
-		err := loadSupportBundleSpecsFromURIs(ctx, kinds)
+		kinds, err = loadSupportBundleSpecsFromURIs(ctx, kinds)
 		if err != nil {
 			klog.Warningf("unable to load support bundles from URIs: %v", err)
 		}

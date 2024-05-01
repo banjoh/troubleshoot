@@ -54,7 +54,7 @@ spec:
 
 	assert.Len(t, kinds.SupportBundlesV1Beta2, 1)
 	assert.NotNil(t, kinds.SupportBundlesV1Beta2[0].Spec.Collectors[0].ConfigMap)
-	err = loadSupportBundleSpecsFromURIs(ctx, kinds)
+	kinds, err = loadSupportBundleSpecsFromURIs(ctx, kinds)
 	require.NoError(t, err)
 
 	// valid uri spec will replace the original spec
@@ -86,7 +86,7 @@ func Test_loadSupportBundleSpecsFromURIs_TimeoutError(t *testing.T) {
 	beforeJSON, err := json.Marshal(kinds)
 	require.NoError(t, err)
 
-	err = loadSupportBundleSpecsFromURIs(ctx, kinds)
+	kinds, err = loadSupportBundleSpecsFromURIs(ctx, kinds)
 	require.NoError(t, err)
 
 	afterJSON, err := json.Marshal(kinds)
