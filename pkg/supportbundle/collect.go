@@ -8,6 +8,9 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	analyze "github.com/replicatedhq/troubleshoot/pkg/analyze"
@@ -19,7 +22,11 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 )
 
 func runHostCollectors(ctx context.Context, hostCollectors []*troubleshootv1beta2.HostCollect, additionalRedactors *troubleshootv1beta2.Redactor, bundlePath string, opts SupportBundleCreateOpts) (collect.CollectorResult, error) {
@@ -30,10 +37,27 @@ func runHostCollectors(ctx context.Context, hostCollectors []*troubleshootv1beta
 
 	var collectors []collect.HostCollector
 	for _, desiredCollector := range collectSpecs {
-		collector, ok := collect.GetHostCollector(desiredCollector, bundlePath)
-		if ok {
-			collectors = append(collectors, collector)
+		// CollectFromRemoteNodes is a new function that wraps the following
+		// - Create a host support bundle spec which will contain only ONE collector
+		// - Run the host support bundle on a new pod.
+		// - Collect the results from the pod
+		var result map[string][]byte
+		if opts.RunHostCollectorsInPod {
+			result = runRemoteHostCollectors(ctx, desiredCollector, bundlePath, opts)
+		} else {
+			klog.V(2).Info("Running host collector locally")
+			// result = runLocalHostCollectors(ctx, hostCollectors, bundlePath, opts)
 		}
+		for k, v := range result {
+			allCollectedData[k] = v
+		}
+
+		// With this approach, we do not need to touch any of the existing host collectors
+		// by attempting to add RemoteCollect function. We instead pass the spec to this
+		// new and it will handle the rest.
+		// This new function implementation will be similar to
+		// https://github.com/replicatedhq/troubleshoot/blob/main/pkg/collect/host_os_info.go#L64-L119
+		// but will be generic for all host collectors.
 	}
 
 	for _, collector := range collectors {
@@ -105,6 +129,251 @@ func runHostCollectors(ctx context.Context, hostCollectors []*troubleshootv1beta
 	}
 
 	return collectResult, nil
+}
+
+func createHostCollectorsSpec(hostCollector *troubleshootv1beta2.HostCollect) *troubleshootv1beta2.HostCollector {
+	return &troubleshootv1beta2.HostCollector{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "troubleshoot.sh/v1beta2",
+			Kind:       "HostCollector",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "remoteHostCollector",
+		},
+		Spec: troubleshootv1beta2.HostCollectorSpec{
+			Collectors: []*troubleshootv1beta2.HostCollect{
+				hostCollector,
+			},
+		},
+	}
+}
+
+func convertHostCollectorSpecToJSON(spec *troubleshootv1beta2.HostCollector) (string, error) {
+	jsonData, err := json.Marshal(spec)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to marshal Host Collector spec")
+	}
+	return string(jsonData), nil
+}
+
+func runRemoteHostCollectors(ctx context.Context, hostCollectors *troubleshootv1beta2.HostCollect, bundlePath string, opts SupportBundleCreateOpts) map[string][]byte {
+	output := collect.NewResult()
+
+	// convert host collectors into a HostCollector spec
+	spec := createHostCollectorsSpec(hostCollectors)
+	specJSON, err := convertHostCollectorSpecToJSON(spec)
+	if err != nil {
+		// TODO: error handling
+		return nil
+	}
+	klog.V(2).Infof("HostCollector spec: %s", specJSON)
+
+	clientset, err := kubernetes.NewForConfig(opts.KubernetesRestConfig)
+	if err != nil {
+		// TODO: error handling
+		return nil
+	}
+
+	// TODO: rbac check
+
+	nodeList, err := getNodeList(clientset, opts)
+	if err != nil {
+		// TODO: error handling
+		return nil
+	}
+	klog.V(2).Infof("Node list to run remote host collectors: %s", nodeList.Nodes)
+
+	// create a config map for the HostCollector spec
+	// cm, err := createHostCollectorConfigMap(ctx, clientset, specJSON)
+	// if err != nil {
+	// 	// TODO: error handling
+	// 	return nil
+	// }
+	// klog.V(2).Infof("Created Remote Host Collector ConfigMap %s", cm.Name)
+
+	// create remote pod for each node
+	labels := map[string]string{
+		"troubleshoot.sh/remote-collector": "true",
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	nodeLogs := make(map[string][]byte)
+
+	for _, node := range nodeList.Nodes {
+		wg.Add(1)
+		go func(node string) {
+			defer wg.Done()
+
+			// TODO: set timeout waiting
+
+			// create a remote pod spec to run the host collectors
+			nodeSelector := map[string]string{
+				"kubernetes.io/hostname": node,
+			}
+			// pod, err := createHostCollectorPod(ctx, clientset, cm.Name, nodeSelector, labels)
+			pod, err := createHostCollectorPod(ctx, clientset, "configmap", nodeSelector, labels)
+			if err != nil {
+				// TODO: error handling
+				return
+			}
+			klog.V(2).Infof("Created Remote Host Collector Pod %s", pod.Name)
+
+			// go streamPodLogs(ctx, clientset, pod, node, opts)
+
+			// wait for the pod to complete
+			// err = waitForPodCompletion(ctx, clientset, pod)
+			// if err != nil {
+			// 	// TODO: error handling
+			// 	return
+			// }
+
+			logs := []byte("TODO: extract logs from the pod")
+			// // extract logs from the pod
+			// var logs []byte
+			// logs, err = getPodLogs(ctx, clientset, pod)
+			// if err != nil {
+			// 	// TODO: error handling
+			// 	return
+			// }
+
+			// wait for log stream to catch up
+			time.Sleep(1 * time.Second)
+
+			mu.Lock()
+			nodeLogs[node] = logs
+			mu.Unlock()
+
+		}(node)
+	}
+	wg.Wait()
+
+	klog.V(2).Infof("All remote host collectors completed")
+
+	defer func() {
+		// TODO:
+		// delete the config map
+		// delete the remote pods
+	}()
+
+	// aggregate results
+	for node, logs := range nodeLogs {
+		var nodeResult map[string]string
+		if err := json.Unmarshal(logs, &nodeResult); err != nil {
+			// TODO: error handling
+			return nil
+		}
+		for file, data := range nodeResult {
+			// trim host-collectors/ prefix
+			file = strings.TrimPrefix(file, "host-collectors/")
+			err := output.SaveResult(bundlePath, fmt.Sprintf("host-collectors/%s/%s", node, file), bytes.NewBufferString(data))
+			if err != nil {
+				// TODO: error handling
+				return nil
+			}
+		}
+	}
+
+	// save node list to bundle for analyzer to use later
+	nodeListBytes, err := json.MarshalIndent(nodeList, "", "  ")
+	if err != nil {
+		// TODO: error handling
+		return nil
+	}
+	err = output.SaveResult(bundlePath, constants.NODE_LIST_FILE, bytes.NewBuffer(nodeListBytes))
+	if err != nil {
+		// TODO: error handling
+		return nil
+	}
+
+	return output
+}
+
+func createHostCollectorPod(ctx context.Context, clientset kubernetes.Interface, specConfigMap string, nodeSelector map[string]string, labels map[string]string) (*corev1.Pod, error) {
+	ns := "default"
+	imageName := "replicated/troubleshoot:latest"
+	imagePullPolicy := corev1.PullAlways
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "remote-host-collector-",
+			Namespace:    ns,
+			Labels:       labels,
+		},
+		Spec: corev1.PodSpec{
+			NodeSelector:  nodeSelector,
+			HostNetwork:   true,
+			HostPID:       true,
+			HostIPC:       true,
+			RestartPolicy: corev1.RestartPolicyNever,
+			Containers: []corev1.Container{
+				{
+					Image:           imageName,
+					ImagePullPolicy: imagePullPolicy,
+					Name:            "remote-collector",
+					Command:         []string{"/bin/bash", "-c"},
+					Args: []string{
+						`cp /troubleshoot/collect /host/collect &&
+						cp /troubleshoot/specs/collector.json /host/collector.json &&
+						chroot /host /bin/bash -c './collect --collect-without-permissions --format=raw -v=5 collector.json 2>collector.log'`,
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: ptr.To(true),
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "collector",
+							MountPath: "/troubleshoot/specs",
+							ReadOnly:  true,
+						},
+						{
+							Name:      "host-root",
+							MountPath: "/host",
+						},
+					},
+				},
+				{
+					Image:   "busybox",
+					Name:    "log-tailer",
+					Command: []string{"sh", "-c"},
+					Args:    []string{"tail -F /host/collector.log"},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "host-root",
+							MountPath: "/host",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "collector",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: specConfigMap,
+							},
+						},
+					},
+				},
+				{
+					Name: "host-root",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	createdPod, err := clientset.CoreV1().Pods(ns).Create(ctx, pod, metav1.CreateOptions{})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create Remote Host Collector Pod")
+	}
+
+	return createdPod, nil
 }
 
 func runCollectors(ctx context.Context, collectors []*troubleshootv1beta2.Collect, additionalRedactors *troubleshootv1beta2.Redactor, bundlePath string, opts SupportBundleCreateOpts) (collect.CollectorResult, error) {
