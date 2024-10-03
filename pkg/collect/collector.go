@@ -24,6 +24,10 @@ type Collector interface {
 	Collect(progressChan chan<- interface{}) (CollectorResult, error)
 }
 
+type HostRemoteCollector interface {
+	RemoteCollect(progressChan chan<- interface{}) (map[string][]byte, error)
+}
+
 type MergeableCollector interface {
 	Collector
 	Merge(allCollectors []Collector) ([]Collector, error)

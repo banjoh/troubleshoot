@@ -43,7 +43,22 @@ func runHostCollectors(ctx context.Context, hostCollectors []*troubleshootv1beta
 		// - Collect the results from the pod
 		var result map[string][]byte
 		if opts.RunHostCollectorsInPod {
-			result = runRemoteHostCollectors(ctx, desiredCollector, bundlePath, opts)
+			collector, ok := collect.GetHostCollector(desiredCollector, "")
+			if !ok {
+				return nil, collect.ErrHostCollectorNotFound
+			}
+			rCollector, ok := collector.(collect.HostRemoteCollector)
+			if ok {
+				klog.V(2).Infof("This collector has a custom remote collector implementation: %s", collector.Title())
+				var err error
+				result, err = rCollector.RemoteCollect(opts.ProgressChan)
+				if err != nil {
+					opts.ProgressChan <- fmt.Sprintf("[%s] Remote collector not implemented", collector.Title())
+				}
+			} else {
+				// Lets go the default way of running the host collector
+				result = runRemoteHostCollectors(ctx, desiredCollector, bundlePath, opts)
+			}
 		} else {
 			klog.V(2).Info("Running host collector locally")
 			// result = runLocalHostCollectors(ctx, hostCollectors, bundlePath, opts)

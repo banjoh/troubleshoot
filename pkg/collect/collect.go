@@ -63,6 +63,7 @@ func CollectHost(c *troubleshootv1beta2.HostCollector, additionalRedactors *trou
 		if !ok {
 			return nil, ErrHostCollectorNotFound
 		}
+
 		collectors = append(collectors, collector)
 	}
 
