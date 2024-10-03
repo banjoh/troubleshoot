@@ -23,11 +23,6 @@ type Collector interface {
 	CheckRBAC(ctx context.Context, c Collector, collector *troubleshootv1beta2.Collect, clientConfig *rest.Config, namespace string) error
 	Collect(progressChan chan<- interface{}) (CollectorResult, error)
 }
-
-type HostRemoteCollector interface {
-	RemoteCollect(progressChan chan<- interface{}) (map[string][]byte, error)
-}
-
 type MergeableCollector interface {
 	Collector
 	Merge(allCollectors []Collector) ([]Collector, error)

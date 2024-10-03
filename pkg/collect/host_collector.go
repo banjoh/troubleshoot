@@ -8,7 +8,13 @@ type HostCollector interface {
 	Title() string
 	IsExcluded() (bool, error)
 	Collect(progressChan chan<- interface{}) (map[string][]byte, error)
-	RemoteCollect(progressChan chan<- interface{}) (map[string][]byte, error) // RemoteCollect is used to priviledge pods to collect data from different nodes
+}
+
+// HostRemoteCollector to allow a host collector to have its custome remote collect method
+// Its optional to implement this interface
+type HostRemoteCollector interface {
+	// RemoteCollect is used to priviledge pods to collect data from different nodes
+	RemoteCollect(progressChan chan<- interface{}) (map[string][]byte, error)
 }
 
 func GetHostCollector(collector *troubleshootv1beta2.HostCollect, bundlePath string) (HostCollector, bool) {

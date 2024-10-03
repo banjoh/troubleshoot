@@ -108,7 +108,3 @@ func parseLsblkOutput(output []byte) ([]BlockDeviceInfo, error) {
 
 	return devices, nil
 }
-
-func (c *CollectHostBlockDevices) RemoteCollect(progressChan chan<- interface{}) (map[string][]byte, error) {
-	return nil, ErrRemoteCollectorNotImplemented
-}

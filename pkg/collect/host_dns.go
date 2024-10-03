@@ -204,10 +204,6 @@ func queryDNS(name, query, server string) DNSEntry {
 	return entry
 }
 
-func (c *CollectHostDNS) RemoteCollect(progressChan chan<- interface{}) (map[string][]byte, error) {
-	return nil, ErrRemoteCollectorNotImplemented
-}
-
 func extractSearchFromFQDN(fqdn, name string) string {
 	// no search domain
 	if fqdn == name {
