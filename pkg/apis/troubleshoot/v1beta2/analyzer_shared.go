@@ -133,6 +133,9 @@ type NodeResourceFilters struct {
 	EphemeralStorageAllocatable string                 `json:"ephemeralStorageAllocatable,omitempty" yaml:"ephemeralStorageAllocatable,omitempty"`
 	GPUCapacity                 string                 `json:"gpuCapacity,omitempty" yaml:"gpuCapacity,omitempty"`
 	GPUAllocatable              string                 `json:"gpuAllocatable,omitempty" yaml:"gpuAllocatable,omitempty"`
+	ResourceName                string                 `json:"resourceName,omitempty" yaml:"resourceName,omitempty"`
+	Capacity                    string                 `json:"capacity,omitempty" yaml:"capacity,omitempty"`
+	Allocatable                 string                 `json:"allocatable,omitempty" yaml:"allocatable,omitempty"`
 	Selector                    *NodeResourceSelectors `json:"selector,omitempty" yaml:"selector,omitempty"`
 }
 

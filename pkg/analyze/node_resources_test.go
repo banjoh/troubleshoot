@@ -438,7 +438,8 @@ func Test_compareNodeResourceConditionalToActual(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			req := require.New(t)
 
-			actual, err := compareNodeResourceConditionalToActual(test.conditional, test.matchingNodes)
+			a := AnalyzeNodeResources{}
+			actual, err := a.compareNodeResourceConditionalToActual(test.conditional, test.matchingNodes)
 			if test.isError {
 				req.Error(err)
 			} else {
